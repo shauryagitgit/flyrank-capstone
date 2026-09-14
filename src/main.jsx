@@ -8,83 +8,68 @@ const examples = {
   bug: `Checkout failures spiked after the payment form update. Investigate the likely causes, suggest immediate mitigation, and define what to monitor over the next 24 hours.`,
 };
 
-function mockAI(text) {
-  const lower = text.toLowerCase();
-  const type = lower.includes('checkout') || lower.includes('bug') ? 'incident' : lower.includes('launch') ? 'launch' : 'plan';
-
-  if (!text.trim()) throw new Error('Add some notes before asking Briefly to organize them.');
-  if (text.trim().length < 24) throw new Error('Give Briefly a little more context (at least 24 characters).');
-
-  if (type === 'incident') {
-    return {
-      title: 'Checkout recovery plan',
-      summary: 'A focused incident response brief to stabilize checkout, identify the regression, and keep a tight watch on recovery.',
-      actions: [
-        ['Reproduce the failure', 'Engineering', 'Today'],
-        ['Compare release changes', 'Engineering', 'Today'],
-        ['Add temporary alerting', 'SRE', 'Next 2h'],
-        ['Post support update', 'Support', 'Today'],
-      ],
-      risks: ['Conversion loss continues while the regression is unresolved.', 'A partial fix could mask failures in one payment path.'],
-    };
-  }
-
-  if (type === 'launch') {
-    return {
-      title: 'Onboarding launch brief',
-      summary: 'A launch-ready plan centered on activation, measurable experiments, and a controlled rollout.',
-      actions: [
-        ['Define activation metric', 'Product', 'Today'],
-        ['Finalize experiment matrix', 'Growth', 'Tomorrow'],
-        ['Ship QA checklist', 'QA', 'Tomorrow'],
-        ['Prepare support messaging', 'Support', 'Before launch'],
-      ],
-      risks: ['Unclear success criteria can make experiments hard to evaluate.', 'A broad rollout before observing early signals increases rollback cost.'],
-    };
-  }
-
-  return {
-    title: 'Team sync action brief',
-    summary: 'A concise execution plan for tomorrow’s sync, with owners, deadlines, and the main delivery risks surfaced.',
-    actions: [
-      ['Draft launch checklist', 'Product', 'Today'],
-      ['Finish final copy', 'Content', 'Today'],
-      ['Run QA pass', 'QA', 'Tomorrow'],
-      ['Verify analytics events', 'Data', 'Tomorrow'],
-    ],
-    risks: ['QA gaps could delay launch readiness.', 'Missing analytics verification may make the launch hard to measure.'],
-  };
-}
+const initialBrief = {
+  title: 'Team sync action brief',
+  summary: 'Ready to turn the notes into a structured execution brief with concrete actions, owners, timing, and risks.',
+  actions: [
+    ['Draft the launch checklist', 'Product', 'Today'],
+    ['Finish final copy', 'Content', 'Today'],
+    ['Run QA pass', 'QA', 'Tomorrow'],
+    ['Verify analytics events', 'Data', 'Tomorrow'],
+  ],
+  risks: ['QA gaps could delay launch readiness.', 'Missing analytics verification may make the launch hard to measure.'],
+};
 
 function App() {
   const [notes, setNotes] = useState(examples.meeting);
-  const [brief, setBrief] = useState(() => mockAI(examples.meeting));
+  const [brief, setBrief] = useState(initialBrief);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [source, setSource] = useState('ready');
 
   const chars = notes.length;
   const actionText = useMemo(() => brief.actions.map(([task, owner, when]) => `${task} — ${owner} — ${when}`).join('\n'), [brief]);
 
-  function generate() {
+  async function generate() {
     setError('');
     setCopied(false);
+    const cleanNotes = notes.trim();
+    if (!cleanNotes) {
+      setError('Add some notes before asking Briefly to organize them.');
+      return;
+    }
+    if (cleanNotes.length < 24) {
+      setError('Give Briefly a little more context (at least 24 characters).');
+      return;
+    }
+
     setBusy(true);
-    window.setTimeout(() => {
-      try {
-        setBrief(mockAI(notes));
-      } catch (err) {
-        setError(err.message);
-      } finally {
-        setBusy(false);
-      }
-    }, 650);
+    try {
+      const response = await fetch('/api/brief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: cleanNotes }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not generate the brief.');
+      setBrief(data);
+      setSource(data.source || 'ai-gateway');
+    } catch (err) {
+      setError(err.message || 'Could not generate the brief.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function copyActions() {
-    await navigator.clipboard?.writeText(actionText);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
+    try {
+      await navigator.clipboard?.writeText(actionText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setError('Copy is unavailable in this browser.');
+    }
   }
 
   return (
@@ -98,7 +83,7 @@ function App() {
         <div className="intro">
           <div className="eyebrow">FLYRANK / CAPSTONE</div>
           <h1>Turn messy notes into a brief your team can act on.</h1>
-          <p>Briefly uses a structured AI workflow to extract the goal, next actions, owners, timing, and delivery risks from rough notes.</p>
+          <p>Briefly sends your notes through a server-side AI step and renders the result as structured actions, owners, timing, and delivery risks.</p>
           <div className="examples" aria-label="Example prompts">
             {Object.entries(examples).map(([key, value]) => (
               <button key={key} className="example" onClick={() => { setNotes(value); setError(''); }} aria-label={`Load ${key} example`}>
@@ -107,36 +92,37 @@ function App() {
             ))}
           </div>
         </div>
+
         <section className="workspace" aria-label="Briefly AI workspace">
           <div className="panel input-panel">
             <div className="panel-head"><div><span className="kicker">1 / INPUT</span><h2>Paste the messy version.</h2></div><span className="counter">{chars} chars</span></div>
             <label htmlFor="notes">Project notes</label>
             <textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} aria-describedby="notes-help" />
-            <div className="input-foot"><span id="notes-help">Briefly will validate context before running the AI step.</span><button className="primary" onClick={generate} disabled={busy}>{busy ? 'Organizing…' : 'Generate brief →'}</button></div>
+            <div className="input-foot"><span id="notes-help">Your notes are sent to the server-side AI route; credentials never reach the browser.</span><button className="primary" onClick={generate} disabled={busy}>{busy ? 'Organizing…' : 'Generate brief →'}</button></div>
             {error && <div className="error" role="alert">{error}</div>}
           </div>
 
           <div className="panel output-panel">
-            <div className="panel-head"><div><span className="kicker">2 / OUTPUT</span><h2>{brief.title}</h2></div><span className="ai-badge">AI structured</span></div>
+            <div className="panel-head"><div><span className="kicker">2 / OUTPUT</span><h2>{brief.title}</h2></div><span className="ai-badge">{source === 'fallback' ? 'Fallback structured' : source === 'ready' ? 'Ready' : 'AI structured'}</span></div>
             <p className="summary">{brief.summary}</p>
             <div className="section-title">Next actions</div>
             <div className="action-list">
-              {brief.actions.map(([task, owner, when]) => (
-                <div className="action" key={task}>
+              {brief.actions.map(([task, owner, when], index) => (
+                <div className="action" key={`${task}-${index}`}>
                   <div><strong>{task}</strong><span>{owner}</span></div><time>{when}</time>
                 </div>
               ))}
             </div>
             <div className="section-title">Watch-outs</div>
             <ul className="risks">
-              {brief.risks.map((risk) => <li key={risk}>{risk}</li>)}
+              {brief.risks.map((risk, index) => <li key={`${risk}-${index}`}>{risk}</li>)}
             </ul>
-            <div className="output-foot"><span>Deterministic fallback available when the AI service is unavailable.</span><button className="ghost" onClick={copyActions}>{copied ? 'Copied ✓' : 'Copy actions'}</button></div>
+            <div className="output-foot"><span>AI first, validated structured fallback when the model is unavailable.</span><button className="ghost" onClick={copyActions}>{copied ? 'Copied ✓' : 'Copy actions'}</button></div>
           </div>
         </section>
       </section>
 
-      <footer>Accessible controls · input validation · structured output · resilient fallback · responsive UI</footer>
+      <footer>Server-side AI · input validation · structured output · resilient fallback · accessible controls · responsive UI</footer>
     </main>
   );
 }
