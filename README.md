@@ -1,9 +1,9 @@
 # FlyRank Capstone — Briefly AI
 
-Briefly is a small production-minded frontend that turns rough project notes into a structured action brief. It demonstrates an AI-shaped workflow with validation, deterministic structured output, resilient error handling, accessible controls, and responsive UI.
+Briefly is a production-minded frontend that turns rough project notes into a structured action brief. Step 1 sends the user's notes to a server-side AI route and Step 2 renders validated structured output: a title, summary, actions, owners, timing, and risks.
 
 ## Why this project
-The product solves a real frontend workflow: turning scattered notes into something a team can execute. The AI layer is intentionally represented by a deterministic local adapter in this submission so the demo is reliable without exposing an API key in the browser. The adapter has the same responsibility as an LLM boundary: validate input, return structured fields, and surface failures cleanly. A real provider can be swapped in behind this boundary.
+The product solves a real workflow: turning scattered notes into something a team can execute. The browser never receives model credentials. The `/api/brief` route uses the Vercel AI SDK and AI Gateway when available, validates the returned JSON shape, and uses a deterministic structured fallback if the model is unavailable or returns malformed output.
 
 ## Run
 
@@ -25,12 +25,15 @@ npm test
 ```
 
 ## Production notes
-- Semantic labels and live feedback support accessible interaction.
+- Semantic labels and accessible controls support keyboard and assistive-technology use.
 - Input length is validated before generation.
-- Structured output is rendered into actions, owners, timing, and risks rather than an unbounded text blob.
-- The UI contains loading and error states with a retry path.
-- The implementation is dependency-light and responsive.
-- No secrets are required in the client.
+- AI output is constrained to structured fields and validated before rendering.
+- The UI shows loading and error states without losing the user's notes.
+- The app is responsive and uses the existing lightweight frontend architecture.
+- AI credentials stay server-side.
 
-## AI integration path
-For a hosted LLM, replace `mockAI()` with a server-side route such as `/api/brief`. Keep provider credentials server-side, validate the response against a schema, and fall back to a safe error message when the provider fails or returns malformed data.
+## AI integration
+The client calls `POST /api/brief` with the Step 1 notes. The Vercel Function calls a model through the Vercel AI SDK / AI Gateway and asks for strict JSON. The server validates the result before returning it. When the model is unavailable, the same endpoint produces a clearly marked deterministic structured fallback so the Step 1 → Step 2 experience remains usable.
+
+## Deployment
+The GitHub repository is connected to Vercel, so pushes to `main` trigger a new production deployment.
