@@ -1,6 +1,6 @@
 import { generateText } from 'ai';
 
-const fallback = (notes) => {
+export const fallback = (notes) => {
   const text = notes.trim();
   const lower = text.toLowerCase();
   const sentences = text.split(/(?<=[.!?])\s+/).filter(Boolean);
@@ -36,7 +36,7 @@ const fallback = (notes) => {
   };
 };
 
-function validateBrief(value) {
+export function validateBrief(value) {
   if (!value || typeof value !== 'object') return null;
   if (typeof value.title !== 'string' || typeof value.summary !== 'string') return null;
   if (!Array.isArray(value.actions) || value.actions.length === 0 || value.actions.some((a) => !Array.isArray(a) || a.length < 3)) return null;
